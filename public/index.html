@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub PR AI Documenter</title>
+    <style>
+        :root {
+            --gh-green: #2ea44f;
+            --gh-blue: #0969da;
+            --gh-border: #d0d7de;
+            --gh-bg: #f6f8fa;
+            --diff-add: #e6ffec;
+            --diff-del: #ffebe9;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            padding: 40px 20px;
+            background: var(--gh-bg);
+            color: #24292f;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: auto;
+        }
+
+        header {
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--gh-border);
+            padding-bottom: 15px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .input-group {
+            background: white;
+            padding: 20px;
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+        }
+
+        input {
+            padding: 10px 12px;
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            flex: 1;
+            font-size: 14px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: var(--gh-blue);
+            box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.1);
+        }
+
+        button {
+            padding: 10px 20px;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: 0.2s;
+        }
+
+        .btn-view {
+            background: var(--gh-green);
+            border: 1px solid rgba(27, 31, 36, 0.15);
+        }
+
+        .btn-view:hover {
+            background: #2c974b;
+        }
+
+        .btn-ai {
+            background: var(--gh-blue);
+            display: none;
+            margin-top: 10px;
+        }
+
+        .btn-ai:hover {
+            background: #0860ca;
+        }
+
+        .btn-ai:disabled {
+            background: #8bc3ff;
+            cursor: not-allowed;
+        }
+
+        .status-msg {
+            margin-top: 15px;
+            font-size: 13px;
+            color: #57606a;
+        }
+
+        .file-card {
+            background: white;
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            margin-top: 25px;
+            overflow: hidden;
+        }
+
+        .file-header {
+            padding: 10px 16px;
+            background: var(--gh-bg);
+            border-bottom: 1px solid var(--gh-border);
+            font-family: monospace;
+            font-size: 13px;
+        }
+
+        pre {
+            margin: 0;
+            padding: 0;
+            overflow-x: auto;
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 12px;
+        }
+
+        .line {
+            display: block;
+            padding: 0 16px;
+            min-height: 1.5em;
+            white-space: pre-wrap;
+        }
+
+        .addition {
+            background-color: var(--diff-add);
+            border-left: 4px solid #3fb950;
+        }
+
+        .deletion {
+            background-color: var(--diff-del);
+            border-left: 4px solid #f85149;
+        }
+
+        .info {
+            background-color: #ddf4ff;
+            color: #0969da;
+        }
+
+        .error {
+            color: #cf222e;
+            background: #ffebe9;
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <header>
+            <h1>PR AI Documentation Assistant</h1>
+        </header>
+
+        <div class="input-group">
+            <div class="row">
+                <input type="text" id="prLink"
+                    placeholder="Paste GitHub PR Link (e.g. https://github.com/facebook/react/pull/31427)">
+                <button class="btn-view" onclick="fetchPR()">View Diff</button>
+            </div>
+            <button id="aiBtn" class="btn-ai" onclick="generateAIDocs()">✨ Generate AI Documentation (.md)</button>
+            <div id="status" class="status-msg"></div>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        let currentPRData = null;
+
+        async function fetchPR() {
+            const link = document.getElementById('prLink').value.trim();
+            const resultsDiv = document.getElementById('results');
+            const statusDiv = document.getElementById('status');
+            const aiBtn = document.getElementById('aiBtn');
+
+            // Regex to extract Owner, Repo, and PR number
+            const regex = /github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
+            const match = link.match(regex);
+
+            if (!match) {
+                resultsDiv.innerHTML = `<div class="error">Invalid URL format. Please use a valid GitHub PR link.</div>`;
+                return;
+            }
+
+            const [, owner, repo, pull_number] = match;
+
+            statusDiv.innerText = "Connecting to GitHub...";
+            resultsDiv.innerHTML = "";
+            aiBtn.style.display = "none";
+
+            try {
+                const res = await fetch(`/api/pr?owner=${owner}&repo=${repo}&pull_number=${pull_number}`);
+                const files = await res.json();
+
+                if (files.error) throw new Error(files.error);
+
+                // Store for AI processing
+                currentPRData = { files, owner, repo, pull_number };
+
+                statusDiv.innerText = `Successfully loaded ${files.length} changed file(s).`;
+                aiBtn.style.display = "block";
+
+                resultsDiv.innerHTML = files.map(file => `
+                    <div class="file-card">
+                        <div class="file-header">
+                            <strong>${file.filename}</strong> 
+                            <span style="color: #1a7f37; margin-left: 10px;">+${file.additions}</span> 
+                            <span style="color: #d1242f">-${file.deletions}</span>
+                        </div>
+                        <pre><code>${formatPatch(file.patch)}</code></pre>
+                    </div>
+                `).join('');
+
+            } catch (err) {
+                statusDiv.innerText = "";
+                resultsDiv.innerHTML = `<div class="error"><strong>Error:</strong> ${err.message}</div>`;
+            }
+        }
+
+        async function generateAIDocs() {
+            const btn = document.getElementById('aiBtn');
+            const statusDiv = document.getElementById('status');
+
+            btn.disabled = true;
+            btn.innerText = "🤖 AI is analyzing and writing...";
+            statusDiv.innerText = "Analyzing diff patterns and generating Markdown...";
+
+            try {
+                const res = await fetch('/api/generate-docs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        owner: currentPRData.owner,
+                        repo: currentPRData.repo,
+                        prNumber: currentPRData.pull_number,
+                        diffData: currentPRData.files.map(f => ({
+                            filename: f.filename,
+                            patch: f.patch
+                        }))
+                    })
+                });
+
+                const result = await res.json();
+
+                if (res.ok) {
+                    statusDiv.innerHTML = `✅ <strong>Success!</strong> <a href="${result.path}" target="_blank">Open Google Doc ↗</a>`;
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (err) {
+                alert("AI Generation Error: " + err.message);
+                statusDiv.innerText = "Error during generation.";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "✨ Generate AI Documentation (.md)";
+            }
+        }
+
+        function formatPatch(patch) {
+            if (!patch) return '<span class="line">No textual changes found.</span>';
+
+            return patch.split('\n').map(line => {
+                let className = 'line';
+                if (line.startsWith('+')) className += ' addition';
+                else if (line.startsWith('-')) className += ' deletion';
+                else if (line.startsWith('@@')) className += ' info';
+
+                return `<span class="${className}">${escapeHtml(line)}</span>`;
+            }).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+
+</html>
