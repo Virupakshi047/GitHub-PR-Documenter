@@ -18,10 +18,13 @@ async function uploadToGoogle(repo, prNumber, content) {
     const dateStr = new Date().toISOString().split('T')[0];
     const folderName = `PR-Docs-${dateStr}`;
 
-    // 1. Find or Create Folder
     let folderId;
     const folderSearch = await drive.files.list({
-        q: `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        q: `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and '${SHARED_DRIVE_ID}' in parents and trashed = false`,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+        corpora: 'drive',
+        driveId: SHARED_DRIVE_ID,
         fields: 'files(id)',
     });
 
@@ -29,7 +32,12 @@ async function uploadToGoogle(repo, prNumber, content) {
         folderId = folderSearch.data.files[0].id;
     } else {
         const folder = await drive.files.create({
-            resource: { name: folderName, mimeType: 'application/vnd.google-apps.folder' },
+            supportsAllDrives: true,
+            resource: {
+                name: folderName,
+                mimeType: 'application/vnd.google-apps.folder',
+                parents: [SHARED_DRIVE_ID]
+            },
             fields: 'id',
         });
         folderId = folder.data.id;
@@ -43,7 +51,7 @@ async function uploadToGoogle(repo, prNumber, content) {
         resource: {
             name: `${repo}-PR${prNumber}`,
             mimeType: 'application/vnd.google-apps.document',
-            parents: [SHARED_DRIVE_ID]
+            parents: [folderId]
         },
         fields: 'id',
         media: {
